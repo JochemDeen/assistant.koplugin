@@ -37,14 +37,21 @@ function GeminiHandler:query(message_history, gemini_settings)
     local thinking_budget = koutil.tableGetValue(gemini_settings, "additional_parameters", "thinking_budget")
     if thinking_budget ~= nil then
         generationConfig = generationConfig or {}
-        generationConfig.thinking_config = { thinking_budget = thinking_budget }
+        generationConfig.thinking_config = { thinkingBudget = thinking_budget }
+    end
+
+    local thinking_level = koutil.tableGetValue(gemini_settings, "additional_parameters", "thinking_level")
+    if thinking_level ~= nil then
+        generationConfig = generationConfig or {}
+        generationConfig.thinking_config = generationConfig.thinking_config or {}
+        generationConfig.thinking_config.thinkingLevel = thinking_level
     end
 
     local stream = koutil.tableGetValue(gemini_settings, "additional_parameters", "stream") or false
 
     local requestBodyTable = {
         contents = contents,
-        system_instruction = system_instruction,
+        systemInstruction = system_instruction,
         safetySettings = {
             { category = "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold = "BLOCK_NONE" },
             { category = "HARM_CATEGORY_HATE_SPEECH", threshold = "BLOCK_NONE" },
@@ -97,7 +104,7 @@ function GeminiHandler:query(message_history, gemini_settings)
             request_size = #requestBody,
             message_count = #message_history
         })
-        return nil,"Error: Failed to connect to Gemini API - " .. tostring(response)
+        return nil,"Error: Failed to connect to Gemini API - " .. tostring(code)
     end
 
     local success, parsed = pcall(json.decode, response)
