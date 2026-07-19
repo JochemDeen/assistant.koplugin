@@ -165,13 +165,16 @@ local function trimMessageHistory(message_history)
 end
 
 --- Query the AI with the provided message history
+--- disable_stream: force a non-streaming request regardless of the user setting
+--- (used for batch queries where a stream dialog per request would be disruptive)
 --- return: answer, error (if any)
-function Querier:query(message_history, title)
+function Querier:query(message_history, title, disable_stream)
     if not self:is_inited() then
         return nil, _("Plugin is not configured.")
     end
 
     local use_stream_mode = self.settings:readSetting("use_stream_mode", true)
+    if disable_stream then use_stream_mode = false end
     koutil.tableSetValue(self.provider_settings, use_stream_mode, "additional_parameters", "stream")
 
     local infomsg = InfoMessage:new{
@@ -317,7 +320,37 @@ function Querier:query(message_history, title)
     elseif #res == 0 then
         return nil, _("No response received.") .. (err and tostring(err) or "")
     end
+    self:trackUsage(message_history, res)
     return res
+end
+
+--- Accumulate rough usage counters (characters sent/received) in the settings,
+--- both in total and per model, shown as an estimate in the settings menu.
+--- Character counts are exact; the token/cost numbers derived from them at
+--- display time are approximations.
+function Querier:trackUsage(message_history, response)
+    local input_chars = 0
+    for _, message in ipairs(message_history) do
+        if type(message.content) == "string" then
+            input_chars = input_chars + #message.content
+        end
+    end
+    self.settings:saveSetting("usage_input_chars", (self.settings:readSetting("usage_input_chars") or 0) + input_chars)
+    self.settings:saveSetting("usage_output_chars", (self.settings:readSetting("usage_output_chars") or 0) + #response)
+    self.settings:saveSetting("usage_requests", (self.settings:readSetting("usage_requests") or 0) + 1)
+
+    local model = koutil.tableGetValue(self.provider_settings, "model") or "unknown"
+    local by_model = self.settings:readSetting("usage_by_model") or {}
+    local m = by_model[model] or { input_chars = 0, output_chars = 0, requests = 0 }
+    m.input_chars = m.input_chars + input_chars
+    m.output_chars = m.output_chars + #response
+    m.requests = m.requests + 1
+    by_model[model] = m
+    self.settings:saveSetting("usage_by_model", by_model)
+
+    if self.assistant then
+        self.assistant.updated = true
+    end
 end
 
 --- func description: run the stream request in the background 

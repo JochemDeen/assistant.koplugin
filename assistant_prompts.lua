@@ -373,6 +373,73 @@ Reader progress: **{progress}%**.
 Language: **{language}**.
         ]],
     },
+    chapter_summary = {
+        system_prompt =
+        "You are an expert literary assistant creating structured chapter summaries for a reading companion. Always respond in Markdown format.",
+        user_prompt = [[
+I am building a chapter-by-chapter companion for '''{title}''' by '''{author}'''.
+Below you will find the table of contents, summaries of the previous chapters (when available), and the full text of chapter {chapter_number} of {chapter_count}: "{chapter_title}".
+
+Write a summary of THIS chapter only, with the following structure:
+
+### Summary
+A concise summary of the chapter (150-250 words): key events, character developments and revelations.
+
+### Key Elements
+- 3 to 6 bullets: characters introduced or changed, locations, important objects or concepts.
+
+### Link to the Larger Structure
+How this chapter connects to the story so far and to the book's overall arc: which threads it advances, opens, or closes (2-4 sentences). Base this only on the previous chapter summaries and this chapter's text.
+
+Rules:
+* Describe only events from this chapter; you may refer back to earlier chapters, but never reveal or speculate about anything from later chapters.
+* Use **bold** for names and locations, *italics* for major plot points.
+* Answer entirely in {language}. Return only the summary, nothing else.]],
+    },
+    chapter_question = {
+        system_prompt =
+        "You are a helpful reading companion. The reader is in the middle of a chapter; you know the story only through the provided chapter summaries and the current chapter's text up to the reader's position. Never reveal or speculate about events beyond the provided material. Always respond in Markdown format.",
+        user_prompt = [[
+I am reading '''{title}''' by '''{author}''', currently in the chapter "{chapter_title}".
+Below are summaries of the chapters I have finished, followed by the text of the current chapter up to my reading position. Answer my question using only this material, without spoiling anything beyond it.
+
+My question: {user_input}
+
+Answer in {language}.]],
+    },
+    page_terms = {
+        system_prompt =
+        "You extract names and terms from book excerpts. You respond with only the list: one item per line, no numbering, no bullets, no descriptions, no other text.",
+        user_prompt = [[
+From the following excerpt of '''{title}''' by '''{author}''', list the distinct people, places, and special terms or concepts that appear in it, most story-relevant first (maximum 12).
+
+Rules:
+* Only items that literally appear in the excerpt, written exactly as they appear there.
+* One item per line. No numbering, no descriptions, nothing else.
+
+[EXCERPT BEGIN]
+{excerpt}
+[EXCERPT END]
+]],
+    },
+    chapter_overview = {
+        system_prompt =
+        "You are an expert literary assistant. Always respond in Markdown format.",
+        user_prompt = [[
+Below are AI-generated summaries of the chapters of '''{title}''' by '''{author}''' that I have finished so far.
+Produce an overview of the book's structure up to this point:
+
+### The Story So Far
+A synthesis of the narrative arc so far (1-2 paragraphs).
+
+### Chapter Map
+For each chapter, one line: **N. Chapter title** — its role in the overall structure (setup, escalation, turning point, payoff, ...).
+
+### Open Threads
+Bullets: unresolved conflicts, mysteries and foreshadowing still pending.
+
+Do not invent anything beyond the provided summaries. Answer entirely in {language}.]],
+    },
     book_info = {
         system_prompt =
         "Always respond in Markdown format.",

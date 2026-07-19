@@ -74,9 +74,10 @@ local CONFIGURATION = {
             api_key = "your-gemini-api-key",
             additional_parameters = {
                 temperature = 0.7,
-                max_tokens = 1048576,
+                maxOutputTokens = 8192,
                 -- Set to 0 to disable thinking. Recommended for gemini-2.5-* and newer, where thinking is enabled by default.
                 thinking_budget = 0
+                thinking_level = "low" -- Can change between "low", "medium", and "high"
             }
         },
         gigachat = {
@@ -255,6 +256,30 @@ local CONFIGURATION = {
         default_folder_for_logs = nil,         -- Set the default folder for auto saved logs, nil for the same folder as the book, ex: "/mnt/onboard/logs/" for Kobo , "/mnt/us/documents/logs/" for Kindle
         max_text_length_for_analysis = 100000, -- max text length to be used on xray-recap-book analyzes,
         max_page_size_for_analysis = 250,      -- maximum page size to be used on xray-recap-book analyzes (for page-based documents, ex: PDF)
+
+        -- Chapter Summaries (AI): prompt overrides (optional). Each accepts system_prompt and user_prompt,
+        -- see assistant_prompts.lua (chapter_summary / chapter_question / chapter_overview) for the defaults
+        -- and the available {placeholders}. Chapter text length is capped by max_text_length_for_analysis.
+        -- chapter_summary_config  = { system_prompt = "...", user_prompt = "..." }, -- per-chapter summary generation
+        -- chapter_question_config = { system_prompt = "...", user_prompt = "..." }, -- "Ask about current chapter"
+        -- chapter_overview_config = { system_prompt = "...", user_prompt = "..." }, -- "Book structure so far"
+
+        -- People & terms on this page (optional):
+        -- page_terms_config = { system_prompt = "...", user_prompt = "..." }, -- prompt override, see assistant_prompts.lua (page_terms)
+        -- page_terms_context_length = 3000, -- fallback context size (characters) when the current page yields too little text
+
+        -- AI usage cost estimate (optional): prices per 1 MILLION tokens, used by
+        -- "AI usage (estimated)" in the settings menu. Look up your model's prices at your provider.
+        -- input/output at the top level are the approximate general price, applied to any model
+        -- without its own entry; `models` overrides per model (keyed by the exact model name).
+        -- usage_prices = {
+        --     input = 0.80, output = 4.00, currency = "USD", -- general fallback
+        --     models = {
+        --         ["gpt-4o-mini"]              = { input = 0.15, output = 0.60 },
+        --         ["claude-3-5-haiku-latest"]  = { input = 0.80, output = 4.00 },
+        --         ["gemini-2.5-flash"]         = { input = 0.30, output = 2.50 },
+        --     },
+        -- },
 
         -- Term X-Ray context expansion settings (for analyzing characters, objects, places, concepts, magic)
         -- NOTE: The following settings are optimized to provide ~40k input tokens per term x-ray lookup, using ~10% of a 400k token context window.

@@ -118,6 +118,31 @@ function Assistant:onDispatcherRegisterActions()
     general = true
   })
 
+  -- Register Ask About Current Chapter action (available for gesture binding)
+  -- rolling = true: chapter features rely on TOC xpointers (EPUB-like documents)
+  Dispatcher:registerAction("ai_ask_chapter", {
+    category = "none",
+    event = "AskAIChapterQuestion",
+    title = _("Ask about current chapter"),
+    rolling = true
+  })
+
+  -- Register Chapter Summaries picker action (available for gesture binding)
+  Dispatcher:registerAction("ai_chapter_summary", {
+    category = "none",
+    event = "ShowAIChapterSummary",
+    title = _("AI Chapter Summaries"),
+    rolling = true
+  })
+
+  -- Register People & Terms on page action (available for gesture binding)
+  Dispatcher:registerAction("ai_page_terms", {
+    category = "none",
+    event = "ShowAIPageTerms",
+    title = _("People & terms on this page"),
+    rolling = true
+  })
+
   -- Register Annotations Analysis action (available for gesture binding)
   Dispatcher:registerAction("ai_summary_using_annotations", {
     category = "none",
@@ -221,6 +246,28 @@ function Assistant:addToMainMenu(menu_items)
                 hold_callback = function ()
                   UIManager:show(InfoMessage:new{
                     text = _("Includes user defined book level prompts from Config file")
+                  })
+                end,
+              },
+              {
+                text = _("Chapter Summaries (AI)"),
+                sub_item_table_func = function ()
+                  return require("assistant_chapter").genMenuItems(self)
+                end,
+                hold_callback = function ()
+                  UIManager:show(InfoMessage:new{
+                    text = _("Pre-generate AI summaries for chapters, then view them per finished chapter, see the book structure so far, or ask questions about the current chapter. EPUB-like documents only.")
+                  })
+                end,
+              },
+              {
+                text = _("People & terms on this page"),
+                callback = function ()
+                  self:onShowAIPageTerms()
+                end,
+                hold_callback = function ()
+                  UIManager:show(InfoMessage:new{
+                    text = _("Detects the people, places and terms on the current page (one small API request), then explains the one you pick using only the book text up to your reading position (Term X-Ray). EPUB-like documents only.")
                   })
                 end,
                 separator = true,
@@ -1011,6 +1058,37 @@ end
     self.quicknote:show()
     return true
   end
+
+  function Assistant:onAskAIChapterQuestion()
+    if not self.ui.document then return end
+    require("assistant_chapter").askAboutChapter(self)
+    return true
+  end
+
+  function Assistant:onShowAIChapterSummary()
+    if not self.ui.document then return end
+    require("assistant_chapter").showSummaryPicker(self)
+    return true
+  end
+
+  function Assistant:onShowAIPageTerms()
+    if not self.ui.document then return end
+    require("assistant_pageterms").showPageTerms(self)
+    return true
+  end
+
+-- Chapter-finished detection: on a sequential forward page turn that crosses a
+-- chapter boundary, offer the summary of the chapter just finished.
+function Assistant:onPageUpdate(pageno)
+  if type(pageno) ~= "number" then return end
+  local prev_page = self._last_page
+  self._last_page = pageno
+  if not self.ui or not self.ui.document or not self.ui.rolling then return end
+  if not self.settings:readSetting("chapter_end_notification", false) then return end
+  -- only sequential forward turns: jumps (TOC, skim, search) don't count as finishing
+  if not prev_page or pageno ~= prev_page + 1 then return end
+  require("assistant_chapter").onPageTurn(self, prev_page, pageno)
+end
 
 -- Sync Overriding translate method with setting
 function Assistant:syncTranslateOverride()

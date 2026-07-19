@@ -547,6 +547,90 @@ SettingsDialog.genMenuSettings = function (assistant)
             end
         },
         {
+            text = _("AI usage (estimated)"),
+            keep_menu_open = true,
+            callback = function()
+                local input_chars = assistant.settings:readSetting("usage_input_chars") or 0
+                local output_chars = assistant.settings:readSetting("usage_output_chars") or 0
+                local requests = assistant.settings:readSetting("usage_requests") or 0
+                -- rough rule of thumb: 1 token ~ 4 characters (English prose)
+                local input_tokens = math.floor(input_chars / 4)
+                local output_tokens = math.floor(output_chars / 4)
+                local text = T(_("Since the last reset (all books, all features):\n\nRequests: %1\nInput: ~%2 tokens (%3 characters)\nOutput: ~%4 tokens (%5 characters)"),
+                    requests, input_tokens, input_chars, output_tokens, output_chars)
+
+                local prices = FrontendUtil.tableGetValue(assistant.CONFIGURATION, "features", "usage_prices")
+                -- per-model price when configured, else the general/approximate price
+                local function getPrices(model)
+                    if not prices then return nil end
+                    local model_prices = FrontendUtil.tableGetValue(prices, "models", model)
+                    if model_prices and (model_prices.input or model_prices.output) then
+                        return model_prices
+                    end
+                    if prices.input or prices.output then
+                        return prices
+                    end
+                    return nil
+                end
+                local function getCost(model_prices, in_tokens, out_tokens)
+                    return (in_tokens / 1000000) * (model_prices.input or 0)
+                        + (out_tokens / 1000000) * (model_prices.output or 0)
+                end
+                local currency = (prices and prices.currency) or "USD"
+
+                local by_model = assistant.settings:readSetting("usage_by_model") or {}
+                local model_names = {}
+                for model in pairs(by_model) do table.insert(model_names, model) end
+                table.sort(model_names)
+
+                if #model_names > 0 then
+                    local total_cost, unpriced = 0, false
+                    local lines = {}
+                    -- loop index deliberately not named "_": that would shadow gettext here
+                    for i, model in ipairs(model_names) do
+                        local m = by_model[model]
+                        local in_tokens = math.floor((m.input_chars or 0) / 4)
+                        local out_tokens = math.floor((m.output_chars or 0) / 4)
+                        local line = T(_("%1: %2 requests, ~%3 in / ~%4 out"),
+                            model, m.requests or 0, in_tokens, out_tokens)
+                        local model_prices = getPrices(model)
+                        if model_prices then
+                            local cost = getCost(model_prices, in_tokens, out_tokens)
+                            total_cost = total_cost + cost
+                            line = line .. T(_(" ≈ %1 %2"), string.format("%.4f", cost), currency)
+                        else
+                            unpriced = true
+                        end
+                        table.insert(lines, line)
+                    end
+                    text = text .. "\n\n" .. _("Per model:") .. "\n" .. table.concat(lines, "\n")
+                    if prices then
+                        text = text .. "\n\n" .. T(_("Estimated total cost: %1 %2"),
+                            string.format("%.4f", total_cost), currency)
+                        if unpriced then
+                            text = text .. "\n" .. _("(some models have no price set and are not counted)")
+                        end
+                    end
+                end
+
+                text = text .. "\n\n" .. _("Token counts are estimated (1 token ≈ 4 characters) and vary per model and language; check your provider's dashboard for billed numbers. Prices are set via usage_prices in configuration.lua.")
+
+                UIManager:show(ConfirmBox:new{
+                    icon = "info",
+                    text = text,
+                    ok_text = _("Reset counters"),
+                    ok_callback = function()
+                        assistant.settings:delSetting("usage_input_chars")
+                        assistant.settings:delSetting("usage_output_chars")
+                        assistant.settings:delSetting("usage_requests")
+                        assistant.settings:delSetting("usage_by_model")
+                        assistant.updated = true
+                    end,
+                    cancel_text = _("Close"),
+                })
+            end,
+        },
+        {
             text = _("Purge the settings"),
             callback = function()
                 UIManager:show(ConfirmBox:new{

@@ -391,7 +391,7 @@ local function showDictionaryDialog(assistant, highlightedText, message_history,
         loading_message = _("Loading Term X-Ray ...")
         local context_message = {
             role = "user",
-            content = string.gsub(user_prompt, "{(%w+)}", {
+            content = string.gsub(user_prompt, "{([%w_]+)}", {
                     language = dict_language,
                     context = context_content,
                     context_sentence_count = context_sentence_count,
@@ -409,7 +409,7 @@ local function showDictionaryDialog(assistant, highlightedText, message_history,
         loading_message = _("Loading AI Dictionary ...")
         local context_message = {
             role = "user",
-            content = string.gsub(user_prompt, "{(%w+)}", {
+            content = string.gsub(user_prompt, "{([%w_]+)}", {
                     language = dict_language,
                     context = context_content,
                     word = highlightedText
