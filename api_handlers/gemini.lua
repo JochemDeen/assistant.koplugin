@@ -22,6 +22,7 @@ GeminiHandler.SupportedOptions = {
     ["thinkingConfig"]=true,
     ["thinking_config"]=true,  -- backward compat, mapped to thinkingConfig below
     ["thinking_budget"]=true,   -- top-level convenience for thinkingConfig.thinkingBudget
+    ["thinking_level"]=true,    -- top-level convenience for thinkingConfig.thinkingLevel
 }
 
 function GeminiHandler:FetchModels()
@@ -101,7 +102,11 @@ local function buildGenerationConfig(additional_parameters)
     if additional_parameters and type(additional_parameters) == "table" and next(additional_parameters) then
         for o, v in pairs(additional_parameters) do
             if GeminiHandler.SupportedOptions[o] then
-                if o == "thinking_budget" then
+                if o == "thinking_level" then
+                    gc = gc or {}
+                    gc.thinkingConfig = gc.thinkingConfig or {}
+                    gc.thinkingConfig.thinkingLevel = v
+                elseif o == "thinking_budget" then
                     -- Top-level convenience: map to thinkingConfig.thinkingBudget
                     -- = 0 means "disable thinking"; skip so we don't send thinkingConfig
                     -- to models that reject it with a 400.

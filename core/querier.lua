@@ -22,6 +22,7 @@ local ASUtils = require("utils/base")
 local TextUtils = require("utils/text")
 local ToolExecutor = require("core/tool_executor")
 local Conversation = require("core/conversation")
+local Usage = require("core/usage")
 local Screen = Device.screen
 local Prompts = require("core/prompts").assistant_prompts
 local API_HANDLERS = {}
@@ -440,8 +441,12 @@ function Querier:query(message_history, title, opts)
     local user_setting_ws = Querier.resolveWebSearchMode(
         opts.use_websearch,
         self.settings:readSetting("use_websearch", "none"))
+    local use_stream_mode = opts.use_stream_mode
+    if use_stream_mode == nil then
+        use_stream_mode = self.settings:readSetting("use_stream_mode", true)
+    end
     local query_option = {
-        use_stream_mode = opts.use_stream_mode or self.settings:readSetting("use_stream_mode", true),
+        use_stream_mode = use_stream_mode,
         use_websearch   = user_setting_ws ~= "none" and user_setting_ws or "none",
     }
 
@@ -783,6 +788,10 @@ function Querier:query(message_history, title, opts)
         return nil, tostring(err)
     elseif #res == 0 then
         return nil, _("No response received.") .. (err and tostring(err) or "")
+    end
+    Usage.record(self.settings, self:getEffectiveModel(), message_history, res)
+    if self.assistant then
+        self.assistant.updated = true
     end
     return res
 end
