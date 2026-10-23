@@ -16,3 +16,8 @@ __pycache__
 .deepseek/
 # .opencode/ holds local tooling config only; nothing there is shipped.
 /.opencode/
+
+# Local developer files (fork)
+CLAUDE.md
+.claude/
+/deploy.sh
