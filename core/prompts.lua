@@ -664,6 +664,73 @@ Now begin the analysis with the provided book_text and highlights.]],
         show_suggestions = false,
         system_prompt = common_system_prompt,
     },
+    chapter_summary = {
+        system_prompt =
+        "You are an expert literary assistant creating structured chapter summaries for a reading companion. Always respond in Markdown format.",
+        user_prompt = [[
+I am building a chapter-by-chapter companion for '''{title}''' by '''{author}'''.
+Below you will find the table of contents, summaries of the previous chapters (when available), and the full text of chapter {chapter_number} of {chapter_count}: "{chapter_title}".
+
+Write a summary of THIS chapter only, with the following structure:
+
+### Summary
+A concise summary of the chapter (150-250 words): key events, character developments and revelations.
+
+### Key Elements
+- 3 to 6 bullets: characters introduced or changed, locations, important objects or concepts.
+
+### Link to the Larger Structure
+How this chapter connects to the story so far and to the book's overall arc: which threads it advances, opens, or closes (2-4 sentences). Base this only on the previous chapter summaries and this chapter's text.
+
+Rules:
+* Describe only events from this chapter; you may refer back to earlier chapters, but never reveal or speculate about anything from later chapters.
+* Use **bold** for names and locations, *italics* for major plot points.
+* Answer entirely in {language}. Return only the summary, nothing else.]],
+    },
+    chapter_question = {
+        system_prompt =
+        "You are a helpful reading companion. The reader is in the middle of a chapter; you know the story only through the provided chapter summaries and the current chapter's text up to the reader's position. Never reveal or speculate about events beyond the provided material. Always respond in Markdown format.",
+        user_prompt = [[
+I am reading '''{title}''' by '''{author}''', currently in the chapter "{chapter_title}".
+Below are summaries of the chapters I have finished, followed by the text of the current chapter up to my reading position. Answer my request using only this material, without spoiling anything beyond it.
+
+My request: {user_input}
+
+Answer in {language}.]],
+    },
+    chapter_overview = {
+        system_prompt =
+        "You are an expert literary assistant. Always respond in Markdown format.",
+        user_prompt = [[
+Below are AI-generated summaries of the chapters of '''{title}''' by '''{author}''' that I have finished so far.
+Produce an overview of the book's structure up to this point:
+
+### The Story So Far
+A synthesis of the narrative arc so far (1-2 paragraphs).
+
+### Chapter Map
+For each chapter, one line: **N. Chapter title** - its role in the overall structure (setup, escalation, turning point, payoff, ...).
+
+### Open Threads
+Bullets: unresolved conflicts, mysteries and foreshadowing still pending.
+
+Do not invent anything beyond the provided summaries. Answer entirely in {language}.]],
+    },
+    page_terms = {
+        system_prompt =
+        "You extract names and terms from book excerpts. You respond with only the list: one item per line, no numbering, no bullets, no descriptions, no other text.",
+        user_prompt = [[
+From the following excerpt of '''{title}''' by '''{author}''', list the distinct people, places, and special terms or concepts that appear in it, most story-relevant first (maximum 12).
+
+Rules:
+* Only items that literally appear in the excerpt, written exactly as they appear there.
+* One item per line. No numbering, no descriptions, nothing else.
+
+[EXCERPT BEGIN]
+{excerpt}
+[EXCERPT END]
+]],
+    },
     suggestions_prompt = [[
 
 ### Suggested Questions
@@ -694,6 +761,73 @@ Begin writing the final answer now.
 ]]
 }
 
+
+-- One-tap requests offered by the chapter features (Ask About Current Chapter,
+-- the chapter summary viewer, Book Structure So Far). {scope} names what the
+-- conversation is about ("this chapter", "the book so far"); {title},
+-- {author} and {language} are also expanded. features.chapter_prompts in
+-- configuration.lua overrides or extends them by key (visible = false hides one).
+local chapter_prompts = {
+    critique = {
+        text = _("Critique"),
+        order = 10,
+        user_prompt = [[
+Write a thoughtful critique of {scope}. Cover what works and what does not: structure and pacing, characterization or argument, prose and style, and how well it serves the book as a whole. Support each point with concrete examples from the text. End with a short verdict.]],
+    },
+    quiz = {
+        text = _("Quiz Me"),
+        order = 20,
+        user_prompt = [[
+Quiz me on {scope} to check my understanding. Write 5 multiple-choice questions (options A-D): mix recall of key events or arguments, interpretation, and at least one deeper "why" question. List all questions first, without answers. Then add a horizontal rule, a heading "Answers", and for each question the correct letter with a one-sentence explanation.]],
+    },
+    themes = {
+        text = _("Themes & Symbols"),
+        order = 30,
+        user_prompt = [[
+Identify the main themes, motifs and symbols in {scope}. For each, explain how it shows up in the text (with concrete examples) and what it contributes to the meaning of the book.]],
+    },
+    characters = {
+        text = _("Characters"),
+        order = 40,
+        user_prompt = [[
+Analyze the characters (or, for non-fiction, the key figures and positions) in {scope}: their motivations, how they change, and how they relate to each other. Keep to what the text has shown so far.]],
+    },
+    takeaways = {
+        text = _("Key Takeaways"),
+        order = 50,
+        user_prompt = [[
+List the key ideas, arguments or lessons of {scope} as concise bullets, each with one sentence on why it matters.]],
+    },
+    references = {
+        text = _("Words & References"),
+        order = 60,
+        user_prompt = [[
+Explain the difficult or unusual words, allusions, and historical or cultural references in {scope} that a reader might miss. Give each a short, plain explanation of what it means and why it is relevant here.]],
+    },
+    discussion = {
+        text = _("Discussion Questions"),
+        order = 70,
+        user_prompt = [[
+Write 6 open-ended discussion questions about {scope}, as for a book club: questions that invite interpretation, personal reflection and debate rather than recall. Add one sentence of context under each question.]],
+    },
+    connections = {
+        text = _("Connections"),
+        order = 80,
+        user_prompt = [[
+Explain how {scope} connects to what came before: which earlier events, ideas or threads it picks up, develops, contrasts with or resolves, and what it sets up for later (without guessing at content beyond what I have read).]],
+    },
+    mind_map = {
+        text = _("Mind Map"),
+        order = 90,
+        user_prompt = [[
+Create a mind map of {scope} as a text tree:
+* Start with a level-3 heading naming the central topic.
+* Then a nested bullet list: 4 to 7 main branches (bold labels), each with 2 to 5 sub-points; go one level deeper only where it adds real insight.
+* Keep every label short (at most 8 words) and use indentation, not prose paragraphs.
+* Group by what matters for understanding (for example characters, conflicts, places, ideas, turning points, open questions).
+Return only the heading and the tree.]],
+    },
+}
 
 local function table_merge(t1, t2)
     local result = {}
@@ -732,6 +866,7 @@ local M = {
     getKoreaderVersion = get_koreader_version,
 }
 
+M.chapter_prompts = chapter_prompts
 M.dict_sections = dict_sections
 M.dict_presets = dict_presets
 

@@ -408,6 +408,48 @@ local function genResponseFontItems(assistant)
     return items
 end
 
+--- Usage counters with estimated tokens and, when features.usage_prices is set, costs.
+local function showUsageDialog(assistant)
+    local Usage = require("core/usage")
+    local prices = assistant.config:getFeature("usage_prices")
+    local summary = Usage.summarize(assistant.settings, prices)
+    local lines = {
+        T(_("Since the last reset (all books, all features):\n\nRequests: %1\nInput: ~%2 tokens (%3 characters)\nOutput: ~%4 tokens (%5 characters)"),
+            summary.requests, summary.input_tokens, summary.input_chars, summary.output_tokens, summary.output_chars),
+    }
+    if #summary.models > 0 then
+        local model_lines = {}
+        for model_idx = 1, #summary.models do
+            local m = summary.models[model_idx]
+            local line = T(_("%1: %2 requests, ~%3 in / ~%4 out"), m.model, m.requests, m.input_tokens, m.output_tokens)
+            if m.cost then
+                line = line .. T(" ~ %1 %2", string.format("%.4f", m.cost), summary.currency)
+            end
+            table.insert(model_lines, line)
+        end
+        table.insert(lines, _("Per model:") .. "\n" .. table.concat(model_lines, "\n"))
+        if summary.total_cost then
+            local total = T(_("Estimated total cost: %1 %2"), string.format("%.4f", summary.total_cost), summary.currency)
+            if summary.unpriced then
+                total = total .. "\n" .. _("(some models have no price set and are not counted)")
+            end
+            table.insert(lines, total)
+        end
+    end
+    table.insert(lines, _("Token counts are estimated (1 token is about 4 characters) and vary per model and language; thinking tokens are not counted. Check your provider's dashboard for billed numbers. Prices are set via usage_prices in configuration.lua."))
+
+    UIManager:show(ConfirmBox:new{
+        icon = "info",
+        text = table.concat(lines, "\n\n"),
+        ok_text = _("Reset Counters"),
+        ok_callback = function()
+            Usage.reset(assistant.settings)
+            assistant.updated = true
+        end,
+        cancel_text = _("Close"),
+    })
+end
+
 local function genMenuSettings(assistant)
     local sub_item_table = {
         {
@@ -734,6 +776,13 @@ local function genMenuSettings(assistant)
                         -- @translators Confirmation notice. Same "Recap" feature: a brief spoiler-free summary of what was already read.
                         Notification:notify(_("AI Recap will be enabled the next time a long-unread book is opened."), Notification.SOURCE_ALWAYS_SHOW)
                     end
+                },
+                {
+                    text = _("AI Usage (Estimated)"),
+                    keep_menu_open = true,
+                    callback = function()
+                        showUsageDialog(assistant)
+                    end,
                 },
                 {
                     text = _("Reset Assistant Settings"),
@@ -1148,6 +1197,29 @@ local function addToMainMenu(assistant, menu_items)
               },
             }
 
+  table.insert(book_level_items, {
+              text = _("Chapter Companion"),
+              sub_item_table_func = function ()
+                return require("dialogs/chapters").genMenuItems(assistant)
+              end,
+              hold_callback = function ()
+                UIManager:show(InfoMessage:new{
+                  text = _("Ask about the current chapter with one-tap requests (critique, quiz, mind map, ...), pre-generate AI chapter summaries and browse them per finished chapter, or see the book structure so far. EPUB-like documents only.")
+                })
+              end,
+            })
+  table.insert(book_level_items, {
+              text = _("People & Terms on This Page"),
+              callback = function ()
+                require("feature/page_terms").showPageTerms(assistant)
+              end,
+              hold_callback = function ()
+                UIManager:show(InfoMessage:new{
+                  text = _("Detects the people, places and terms on the current page (one small API request), then explains the one you pick using only the book text up to your reading position (Term X-Ray). EPUB-like documents only.")
+                })
+              end,
+            })
+
   if assistant.config:getFeature("book_level_prompts") then
     table.insert(book_level_items, {
               text = _("Custom Prompts"),
@@ -1162,7 +1234,7 @@ local function addToMainMenu(assistant, menu_items)
               separator = true,
             })
   else
-    book_level_items[1].separator = true
+    book_level_items[#book_level_items].separator = true
   end
 
     local reader_items_table = {}

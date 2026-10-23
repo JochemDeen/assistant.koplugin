@@ -89,6 +89,25 @@ function Assistant:onDispatcherRegisterActions()
     title = _("Highlight & Note Analysis"),
     general = true
   })
+  -- Chapter features need TOC xpointers: EPUB-like (rolling) documents only.
+  Dispatcher:registerAction("ai_ask_chapter", {
+    category = "none",
+    event = "AskAIChapterQuestion",
+    title = _("Ask About Current Chapter"),
+    rolling = true
+  })
+  Dispatcher:registerAction("ai_chapter_summary", {
+    category = "none",
+    event = "ShowAIChapterSummary",
+    title = _("AI Chapter Summaries"),
+    rolling = true
+  })
+  Dispatcher:registerAction("ai_page_terms", {
+    category = "none",
+    event = "ShowAIPageTerms",
+    title = _("People & Terms on This Page"),
+    rolling = true
+  })
   Dispatcher:registerAction("ai_summary_using_annotations", {
     category = "none",
     event = "AskSummaryUsingAnnotations",
@@ -136,6 +155,37 @@ end
 
 function Assistant:onAskSummaryUsingAnnotations()
   return BookActions.onAskSummaryUsingAnnotations(self)
+end
+
+function Assistant:onAskAIChapterQuestion()
+  if not self.ui.document then return end
+  require("dialogs/chapters").askAboutChapter(self)
+  return true
+end
+
+function Assistant:onShowAIChapterSummary()
+  if not self.ui.document then return end
+  require("dialogs/chapters").showSummaryPicker(self)
+  return true
+end
+
+function Assistant:onShowAIPageTerms()
+  if not self.ui.document then return end
+  require("feature/page_terms").showPageTerms(self)
+  return true
+end
+
+-- Chapter-finished detection: a sequential forward page turn crossing a chapter
+-- boundary offers the summary of the chapter just finished. Jumps (TOC, skim,
+-- search) do not count as finishing.
+function Assistant:onPageUpdate(pageno)
+  if type(pageno) ~= "number" then return end
+  local prev_page = self._last_page
+  self._last_page = pageno
+  if not self.ui or not self.ui.document or not self.ui.rolling then return end
+  if not self.settings:readSetting("chapter_end_notification", false) then return end
+  if not prev_page or pageno ~= prev_page + 1 then return end
+  require("dialogs/chapters").onPageTurn(self, prev_page, pageno)
 end
 
 function Assistant:onDictButtonsReady(dict_popup, dict_buttons)

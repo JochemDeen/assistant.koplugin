@@ -170,6 +170,7 @@ local ResultViewer = InputContainer:extend {
   is_show_addnote = true, -- when true, show the Add Note button
   minimalist = nil, -- minimalist_mode setting: answer text plus a Close button
   extra_buttons = nil, -- list of ButtonTable button specs {text, id, callback, hold_callback}, appended to the action row before Close
+  followup_prompts = nil, -- list of {text, user_prompt}: one-tap buttons in Ask Another Question, submitted as onSubmit(viewer, {text, user_prompt, user_input})
 }
 
 -- Open viewers, oldest first; the last entry is the topmost one.
@@ -771,6 +772,31 @@ function ResultViewer:askAnotherQuestion(simple_mode)
         if prompt_buttons[i + j] then
           table.insert(row, prompt_buttons[i + j])
         end
+      end
+      table.insert(button_rows, row)
+    end
+  end
+
+  if self.followup_prompts and not simple_mode then
+    local followup_buttons = {}
+    for prompt_idx = 1, #self.followup_prompts do
+      local prompt = self.followup_prompts[prompt_idx]
+      table.insert(followup_buttons, {
+        text = prompt.text,
+        callback = function()
+          local user_input = self.input_dialog:getInputText()
+          UIManager:close(self.input_dialog)
+          self.input_dialog = nil
+          if self.onSubmit then
+            self.onSubmit(self, { text = prompt.text, user_prompt = prompt.user_prompt, user_input = user_input })
+          end
+        end,
+      })
+    end
+    for i = 1, #followup_buttons, 3 do
+      local row = {}
+      for j = i, math.min(i + 2, #followup_buttons) do
+        table.insert(row, followup_buttons[j])
       end
       table.insert(button_rows, row)
     end

@@ -154,6 +154,36 @@ local CONFIGURATION = {
         default_folder_for_logs = nil,         -- Set the default folder for auto saved logs, nil for the same folder as the book, ex: "/mnt/onboard/logs/" for Kobo , "/mnt/us/documents/logs/" for Kindle
         max_text_length_for_analysis = 100000, -- max text length to be used on xray-recap-book analyzes,
         max_page_size_for_analysis = 250,      -- maximum page size to be used on xray-recap-book analyzes (for page-based documents, ex: PDF)
+
+        -- Chapter Companion (EPUB-like documents): prompt overrides, each { system_prompt = "...", user_prompt = "..." }.
+        -- Defaults and {placeholders}: core/prompts.lua (chapter_summary / chapter_question / chapter_overview).
+        -- Chapter text length is capped by max_text_length_for_analysis.
+        -- chapter_summary_config  = { ... }, -- per-chapter summary generation
+        -- chapter_question_config = { ... }, -- "Ask About Current Chapter"
+        -- chapter_overview_config = { ... }, -- "Book Structure So Far"
+        -- One-tap requests in the chapter features (Critique, Quiz Me, Mind Map, ...). Same keys as
+        -- chapter_prompts in core/prompts.lua override a built-in one; new keys add a button.
+        -- {scope} = what the conversation is about ("this chapter", "the book so far").
+        -- chapter_prompts = {
+        --     quiz = { visible = false },  -- hide a built-in request
+        --     plot_holes = { text = "Plot Holes", order = 95,
+        --         user_prompt = "List any inconsistencies or plot holes in {scope}, with page context." },
+        -- },
+
+        -- People & Terms on This Page (EPUB-like documents):
+        -- page_terms_config = { system_prompt = "...", user_prompt = "..." }, -- see core/prompts.lua (page_terms)
+        -- page_terms_context_length = 3000, -- fallback context (characters) when the page yields too little text
+
+        -- AI usage estimate (Settings -> Other Settings -> AI Usage): prices per 1 MILLION tokens.
+        -- input/output at the top level apply to any model without its own entry under `models`
+        -- (keyed by the exact model id).
+        -- usage_prices = {
+        --     input = 0.80, output = 4.00, currency = "USD",
+        --     models = {
+        --         ["gemini-3.8-flash"]      = { input = 1.50, output = 7.50 },
+        --         ["gemini-3.5-flash-lite"] = { input = 0.30, output = 2.50 },
+        --     },
+        -- },
         max_page_context_chars = 6000,         -- max characters of nearby-page text sent as context when "Add Nearby Page Text as Context" is enabled
 
         -- Term X-Ray is occurrence-anchored (keyword-in-context): every mention of
