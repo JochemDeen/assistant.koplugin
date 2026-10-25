@@ -45,6 +45,7 @@ local Prompts = require("core/prompts")
 local ASUtils = require("utils/base")
 local TextUtils = require("utils/text")
 local Trapper = require("ui/trapper")
+local Regenerate = require("feature/regenerate")
 local ViewerCSS = require("dialogs/css")
 local SettingsMenu = require("dialogs/settings_menu")local Notebook = require("feature/notebook")
 local CheckButton = require("ui/widget/checkbutton")
@@ -171,6 +172,10 @@ local ResultViewer = InputContainer:extend {
   minimalist = nil, -- minimalist_mode setting: answer text plus a Close button
   extra_buttons = nil, -- list of ButtonTable button specs {text, id, callback, hold_callback}, appended to the action row before Close
   followup_prompts = nil, -- list of {text, user_prompt}: one-tap buttons in Ask Another Question, submitted as onSubmit(viewer, {text, user_prompt, user_input})
+  -- The caller's conversation (grown in place). With rebuild_text it enables
+  -- Regenerate in the menu: re-ask the last question with the current model.
+  message_history = nil,
+  onRegenerate = nil, -- function(viewer): replaces the default Regenerate (e.g. for a stored answer)
 }
 
 -- Open viewers, oldest first; the last entry is the topmost one.
@@ -1312,6 +1317,35 @@ function ResultViewer:update(new_text)
   end
 end
 
+--- Regenerate from the menu: the caller's onRegenerate, else regenerateLastAnswer.
+function ResultViewer:regenerate()
+  if self.onRegenerate then
+    return self.onRegenerate(self)
+  end
+  self:regenerateLastAnswer()
+end
+
+--- Re-ask the last question of message_history with the active provider/model
+--- and replace its answer (see feature/regenerate.lua).
+function ResultViewer:regenerateLastAnswer()
+  Regenerate.run(self.assistant, self.message_history, self.title, function(to_end)
+    self:replaceText(self.rebuild_text(self), to_end)
+  end)
+end
+
+--- Replace the whole text (after Regenerate) and show its start, or its end
+--- when `to_end` is set.
+function ResultViewer:replaceText(new_text, to_end)
+  self.text = new_text
+  self.scroll_text_w = self:_buildScrollWidget(self.textw:getSize().h)
+  self.textw:clear()
+  self.textw[1] = self.scroll_text_w
+  if to_end then
+    self.scroll_text_w:scrollToRatio(1)
+  end
+  UIManager:setDirty("all", "partial", self.frame.dimen)
+end
+
 -- Re-assemble the reply from the caller's history, then rebuild the scroll
 -- widget. A display switch (Reasoning / Follow-up Questions) shapes the text
 -- when the dialogs build it, so flipping one has to rebuild the text as well:
@@ -1535,6 +1569,21 @@ function ResultViewer:onShowMenu()
       end,
     }},
   }
+  if self.onRegenerate or (self.message_history and self.rebuild_text) then
+    table.insert(buttons, {{
+      text = _("Regenerate"),
+      align = "left",
+      callback = function()
+        UIManager:close(dialog)
+        self:regenerate()
+      end,
+      hold_callback = function()
+        UIManager:show(InfoMessage:new{
+          text = _("Asks the last question again with the model selected now (change it under Models) and replaces the last answer."),
+        })
+      end,
+    }})
+  end
   dialog = ButtonDialog:new{
     shrink_unneeded_width = true,
     buttons = buttons,

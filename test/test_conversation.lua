@@ -6,6 +6,7 @@
 --   * TurnPolicy.suggestions follows Prompts.isSuggestionsEnabled
 --   * QueryRequest freezes messages (deep copy, no shared mutation)
 --   * Session.append + freeze_request produce a clean request snapshot
+--   * take_last_answer / restore_answer (Regenerate) skip tool payload turns
 local helper = require("test.helper")
 local assert = helper.assert
 local Conversation = require("core/conversation")
@@ -198,6 +199,62 @@ local tests = {
         assert.equal("system", req.messages[1].content)
         assert.equal("Hello", req.messages[2].content)
         assert.equal("none", req.tool_mode)
+    end),
+
+    test("take_last_answer: removes the answer and returns it", function()
+        local history = {
+            { role = "system", content = "sys" },
+            { role = "user", content = "q1" },
+            { role = "assistant", content = "a1" },
+            { role = "user", content = "q2" },
+            { role = "assistant", content = "a2" },
+        }
+        local removed = Conversation.take_last_answer(history)
+        assert.equal(1, #removed)
+        assert.equal("a2", removed[1].content)
+        assert.equal(4, #history)
+        assert.equal("q2", history[4].content)
+    end),
+
+    test("take_last_answer: a web-search exchange goes with the answer", function()
+        local history = {
+            { role = "system", content = "sys" },
+            { role = "user", content = "question" },
+            { role = "assistant", content = { { type = "tool_use" } } },   -- Anthropic tool call
+            { role = "user", content = { { type = "tool_result" } } },     -- Anthropic tool result
+            { role = "model", parts = { { functionCall = {} } } },         -- Gemini tool call
+            { role = "user", parts = { { functionResponse = {} } } },      -- Gemini tool result
+            { role = "tool", content = "results" },                        -- OpenAI tool result
+            { role = "assistant", content = "answer" },
+        }
+        local removed = Conversation.take_last_answer(history)
+        assert.equal(6, #removed)
+        assert.equal(2, #history)
+        assert.equal("question", history[2].content)
+    end),
+
+    test("take_last_answer: nil and untouched when the last question is unanswered", function()
+        local history = {
+            { role = "system", content = "sys" },
+            { role = "user", content = "q" },
+        }
+        assert.equal(nil, Conversation.take_last_answer(history))
+        assert.equal(2, #history)
+        assert.equal(nil, Conversation.take_last_answer({ { role = "system", content = "sys" } }))
+    end),
+
+    test("restore_answer: puts the removed turns back in order", function()
+        local history = {
+            { role = "system", content = "sys" },
+            { role = "user", content = "q" },
+            { role = "tool", content = "results" },
+            { role = "assistant", content = "a" },
+        }
+        local removed = Conversation.take_last_answer(history)
+        Conversation.restore_answer(history, removed)
+        assert.equal(4, #history)
+        assert.equal("results", history[3].content)
+        assert.equal("a", history[4].content)
     end),
 }
 

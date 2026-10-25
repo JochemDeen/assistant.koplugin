@@ -339,4 +339,36 @@ function Conversation.append_answer(message_history, answer, suggestions)
     table.insert(message_history, assistant_msg)
 end
 
+---Take the answer to the last question off the history, together with any
+---tool exchange (web search) after that question, so it can be asked again.
+---Tool payload turns (table content or Gemini `parts`) are not questions.
+---@param message_history table[] Canonical history, truncated in place
+---@return table[]|nil removed messages in order; nil when no answered question ends the history
+function Conversation.take_last_answer(message_history)
+    for i = #message_history, 2, -1 do
+        local msg = message_history[i]
+        if msg.role == "user" and type(msg.content) == "string" and msg.parts == nil then
+            if i == #message_history then return nil end
+            local removed = {}
+            for j = i + 1, #message_history do
+                removed[#removed + 1] = message_history[j]
+            end
+            for j = #message_history, i + 1, -1 do
+                message_history[j] = nil
+            end
+            return removed
+        end
+    end
+    return nil
+end
+
+---Put messages taken by take_last_answer back (a failed regenerate).
+---@param message_history table[]
+---@param removed table[]
+function Conversation.restore_answer(message_history, removed)
+    for i = 1, #removed do
+        table.insert(message_history, removed[i])
+    end
+end
+
 return Conversation

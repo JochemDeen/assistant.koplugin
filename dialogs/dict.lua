@@ -360,6 +360,7 @@ local function showDictionaryDialog(assistant, highlightedText, message_history,
         title = title,
         text = result,
         -- message_history is managed by the showDictionaryDialog closure,
+        message_history = message_history,
         extra_buttons = extra_buttons,
         -- Re-assemble the result so a display switch in the viewer's menu can
         -- hide what it just turned off.

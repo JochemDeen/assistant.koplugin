@@ -71,7 +71,8 @@ end
 --- @param assistant table
 --- @param opts table { title, message_history, vars (placeholders incl. scope),
 ---   lazy_context (function|nil -> string appended once to message_history[2] before the first follow-up),
----   buttons_table (table|nil extra button rows above the default ones) }
+---   buttons_table (table|nil extra button rows above the default ones),
+---   onRegenerate (function|nil viewer callback replacing the default Regenerate) }
 --- @return table viewer
 local function showConversation(assistant, opts)
     local history = opts.message_history
@@ -93,6 +94,8 @@ local function showConversation(assistant, opts)
         buttons_table = opts.buttons_table,
         add_default_buttons = opts.buttons_table ~= nil,
         followup_prompts = Chapters.getChapterPrompts(assistant.config:getFeature("chapter_prompts")),
+        message_history = history,
+        onRegenerate = opts.onRegenerate,
         onSubmit = function(v, input, use_websearch)
             if not context_added then
                 local extra = opts.lazy_context()
@@ -119,6 +122,7 @@ local function showConversation(assistant, opts)
                 use_websearch = false
             end
             ASUtils.set_attr(msg, "show_suggestions", suggestions)
+            ASUtils.set_attr(msg, "use_websearch", use_websearch or false)
             table.insert(history, msg)
 
             NetUtils.runWhenOnlineFast(function()
@@ -149,6 +153,55 @@ local function showConversation(assistant, opts)
     return viewer
 end
 
+--- Summarize chapter `idx` into cache.chapters[idx] (one non-streaming query
+--- with the TOC and the previous chapters' summaries as context). A chapter
+--- without text is stored as empty. The caller saves the cache.
+--- @return boolean summarized, string|nil error, table|nil message_history (on error)
+local function summarizeChapter(assistant, chapters, cache, idx)
+    local ui = assistant.ui
+    local chapter = chapters[idx]
+    local chapter_text = Chapters.getChapterText(ui, chapters, idx)
+    if not chapter_text or koutil.trim(chapter_text) == "" then
+        logger.warn("assistant chapters: no text for chapter", idx, chapter.title)
+        cache.chapters[idx] = { title = chapter.title, empty = true }
+        return false
+    end
+
+    local title, author = getBookInfo(ui)
+    local system_prompt, user_prompt_template = Chapters.getPrompts(assistant.config, "chapter_summary_config", "chapter_summary")
+    local user_content = Chapters.expandPrompt(user_prompt_template, {
+        title = title,
+        author = author,
+        chapter_title = chapter.title,
+        chapter_number = idx,
+        chapter_count = #chapters,
+        language = getLanguage(assistant),
+    })
+    user_content = user_content .. "\n\n[TABLE OF CONTENTS]\n" .. Chapters.buildTocOutline(chapters) .. "\n[END TABLE OF CONTENTS]"
+    local previous_summaries = Chapters.buildSummariesBlock(cache, idx - 1)
+    if previous_summaries ~= "" then
+        user_content = user_content .. "\n\n[SUMMARIES OF PREVIOUS CHAPTERS]\n"
+            .. previous_summaries .. "\n[END SUMMARIES OF PREVIOUS CHAPTERS]"
+    end
+    user_content = user_content .. "\n\n[CHAPTER TEXT BEGIN]\n"
+        .. Chapters.truncateChapterText(chapter_text, getMaxTextLength(assistant)) .. "\n[CHAPTER TEXT END]"
+
+    local message_history = {
+        { role = "system", content = system_prompt },
+        { role = "user", content = user_content },
+    }
+    assistant.querier.user_interrupted = false
+    -- One loading message per chapter is the progress UI: no stream dialog, no web search.
+    local answer, err = assistant.querier:query(message_history,
+        T(_("Summarizing chapter %1 of %2: %3"), idx, #chapters, chapter.title),
+        { use_stream_mode = false, use_websearch = "none" })
+    if err then
+        return false, err, message_history
+    end
+    cache.chapters[idx] = { title = chapter.title, summary = answer, generated_at = os.time() }
+    return true
+end
+
 --- Generate summaries for chapters 1 .. upto (default: the whole book), in order.
 --- Resumable: cached chapters are skipped and the cache is saved after each
 --- chapter. Must run inside Trapper:wrap with network available.
@@ -169,63 +222,24 @@ function M.generateAllSummaries(assistant, upto)
         cache = { version = 1, chapter_count = #chapters, chapters = {} }
     end
 
-    local title, author = getBookInfo(ui)
-    local language = getLanguage(assistant)
-    local max_len = getMaxTextLength(assistant)
-    local toc_outline = Chapters.buildTocOutline(chapters)
-    local system_prompt, user_prompt_template = Chapters.getPrompts(assistant.config, "chapter_summary_config", "chapter_summary")
-
     local generated = 0
     for chapter_idx = 1, last do
         local entry = cache.chapters[chapter_idx]
         if not (entry and entry.summary) then
-            local chapter = chapters[chapter_idx]
-            local chapter_text = Chapters.getChapterText(ui, chapters, chapter_idx)
-            if not chapter_text or koutil.trim(chapter_text) == "" then
-                logger.warn("assistant chapters: no text for chapter", chapter_idx, chapter.title)
-                cache.chapters[chapter_idx] = { title = chapter.title, empty = true }
-            else
-                local user_content = Chapters.expandPrompt(user_prompt_template, {
-                    title = title,
-                    author = author,
-                    chapter_title = chapter.title,
-                    chapter_number = chapter_idx,
-                    chapter_count = #chapters,
-                    language = language,
-                })
-                user_content = user_content .. "\n\n[TABLE OF CONTENTS]\n" .. toc_outline .. "\n[END TABLE OF CONTENTS]"
-                local previous_summaries = Chapters.buildSummariesBlock(cache, chapter_idx - 1)
-                if previous_summaries ~= "" then
-                    user_content = user_content .. "\n\n[SUMMARIES OF PREVIOUS CHAPTERS]\n"
-                        .. previous_summaries .. "\n[END SUMMARIES OF PREVIOUS CHAPTERS]"
-                end
-                user_content = user_content .. "\n\n[CHAPTER TEXT BEGIN]\n"
-                    .. Chapters.truncateChapterText(chapter_text, max_len) .. "\n[CHAPTER TEXT END]"
-
-                local message_history = {
-                    { role = "system", content = system_prompt },
-                    { role = "user", content = user_content },
-                }
-                assistant.querier.user_interrupted = false
-                -- One loading message per chapter is the progress UI: no stream dialog, no web search.
-                local answer, qerr = assistant.querier:query(message_history,
-                    T(_("Summarizing chapter %1 of %2: %3"), chapter_idx, #chapters, chapter.title),
-                    { use_stream_mode = false, use_websearch = "none" })
-                if qerr then
-                    Chapters.saveCache(ui, cache)
-                    if not assistant.querier.user_interrupted then
-                        assistant.querier:showError(qerr, message_history)
-                    end
-                    UIManager:show(InfoMessage:new{
-                        text = T(_("Stopped: %1 of %2 chapter summaries saved.\nRun \"Generate Summaries\" again to continue."),
-                            Chapters.countCachedSummaries(cache), #chapters),
-                    })
-                    return
-                end
-                cache.chapters[chapter_idx] = { title = chapter.title, summary = answer, generated_at = os.time() }
-                generated = generated + 1
+            local ok, qerr, message_history = summarizeChapter(assistant, chapters, cache, chapter_idx)
+            if qerr then
                 Chapters.saveCache(ui, cache)
+                if not assistant.querier.user_interrupted then
+                    assistant.querier:showError(qerr, message_history)
+                end
+                UIManager:show(InfoMessage:new{
+                    text = T(_("Stopped: %1 of %2 chapter summaries saved.\nRun \"Generate Summaries\" again to continue."),
+                        Chapters.countCachedSummaries(cache), #chapters),
+                })
+                return
             end
+            if ok then generated = generated + 1 end
+            Chapters.saveCache(ui, cache)
         end
     end
     Chapters.saveCache(ui, cache)
@@ -374,6 +388,35 @@ function M.showChapterSummary(assistant, chapter_idx)
             return table.concat(parts)
         end,
         buttons_table = { nav_row },
+        -- Without follow-ups the answer is the stored summary: regenerate that
+        -- chapter's summary with the current model and keep the new one.
+        onRegenerate = function(v)
+            if #message_history > 3 then
+                v:regenerateLastAnswer()
+                return
+            end
+            NetUtils.runWhenOnlineFast(function()
+                Trapper:wrap(function()
+                    if not loadActiveModel(assistant) then return end
+                    local fresh = Chapters.loadCache(ui)
+                    if not chapters or type(fresh) ~= "table" or fresh.chapter_count ~= #chapters then
+                        UIManager:show(InfoMessage:new{ icon = "notice-warning",
+                            text = _("The chapter list of this book changed. Generate the summaries again.") })
+                        return
+                    end
+                    local ok, err, failed_history = summarizeChapter(assistant, chapters, fresh, chapter_idx)
+                    if err then
+                        assistant.querier:showError(err, failed_history)
+                        return
+                    end
+                    if not ok then return end
+                    fresh.overview = nil -- built from the old summary
+                    Chapters.saveCache(ui, fresh)
+                    UIManager:close(v)
+                    M.showChapterSummary(assistant, chapter_idx)
+                end)
+            end)
+        end,
     })
 end
 
@@ -469,6 +512,14 @@ function M.showStructureOverview(assistant, force)
             vars = { scope = SCOPE_BOOK_SO_FAR, title = title, author = author, language = getLanguage(assistant) },
             lazy_context = function()
                 return "\n\n[CHAPTER SUMMARIES BEGIN]\n" .. summaries .. "\n[CHAPTER SUMMARIES END]"
+            end,
+            onRegenerate = function(v)
+                if #v.message_history > 3 then
+                    v:regenerateLastAnswer()
+                    return
+                end
+                UIManager:close(v)
+                M.showStructureOverview(assistant, true)
             end,
         })
     end
@@ -626,6 +677,7 @@ function M.queryAboutChapter(assistant, chapters, idx, request)
     ASUtils.set_attr(request_msg, "prompt_title", request.prompt and request.prompt.text or chapter_title)
     ASUtils.set_attr(request_msg, "user_input", request.question or "")
     ASUtils.set_attr(request_msg, "show_suggestions", suggestions)
+    ASUtils.set_attr(request_msg, "use_websearch", false)
     local message_history = {
         { role = "system", content = conversationSystemPrompt(assistant, system_prompt, suggestions) },
         request_msg,

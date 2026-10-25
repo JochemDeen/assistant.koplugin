@@ -39,11 +39,12 @@ end
 local tests = {
     test("toggles keep the menu open, openers close it", function()
         local menu = menu_body(read_viewer())
-        -- Exactly two closes: Text Size (opens SpinWidget) and Models
-        -- (opens settings). RTL/Justify/Reasoning must not. Counted by the
-        -- call itself, not its argument list, so a repainting close with
-        -- other arguments does not read as a third one.
-        assert.equal(count_plain(menu, "UIManager:close"), 2,
+        -- Exactly three closes: Text Size (opens SpinWidget), Models
+        -- (opens settings) and Regenerate (starts a request). RTL/Justify/
+        -- Reasoning must not. Counted by the call itself, not its argument
+        -- list, so a repainting close with other arguments does not read as
+        -- another one.
+        assert.equal(count_plain(menu, "UIManager:close"), 3,
             "only dialog-opening items may close the menu")
         local toggle_start = menu:find('_("Text Direction: %1")', 1, true)
         local toggle_end = menu:find('text = _("Models")', 1, true)

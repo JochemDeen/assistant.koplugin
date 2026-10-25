@@ -306,6 +306,7 @@ local function showFeatureDialog(assistant, feature_type, title, author, progres
       text = createResultText(),
       is_show_addnote = false,
       notebook_path = notebook_path,
+      message_history = message_history,
       onSubmit = function(viewer, user_question, use_websearch)
         local viewer_title = ""
 
