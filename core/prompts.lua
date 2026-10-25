@@ -772,7 +772,13 @@ local chapter_prompts = {
         text = _("Critique"),
         order = 10,
         user_prompt = [[
-Write a thoughtful critique of {scope}. Cover what works and what does not: structure and pacing, characterization or argument, prose and style, and how well it serves the book as a whole. Support each point with concrete examples from the text. End with a short verdict.]],
+Critically examine the ideas in {scope}: what the author claims or argues, not how it is written. (For fiction, examine the views, values and assumptions the story puts forward.)
+1. State the main claims or positions in a few bullets, fairly and in their strongest form.
+2. Assess the reasoning and evidence: what is well supported, where the argument relies on anecdote, selective examples, overgeneralization or a leap in logic.
+3. Name the unstated assumptions the argument depends on.
+4. Give the strongest objections and counterarguments a thoughtful critic would raise, including competing views or evidence from the wider field where relevant.
+5. Say what still holds up after this scrutiny.
+Quote or point to specific passages. Be direct and even-handed, neither dismissive nor deferential. Do not comment on prose style or structure.]],
     },
     quiz = {
         text = _("Quiz Me"),
