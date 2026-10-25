@@ -807,7 +807,7 @@ File configuration.lua will be preserved.]]),
         {
             text = _("OTA Update"),
             callback = function(touchmenu_instance)
-                local ota_github_url = assistant.config:getFeature("ota_github_url", "https://codeload.github.com/omer-faruq/assistant.koplugin")
+                local ota_github_url = assistant.config:getFeature("ota_github_url", Updater.DEFAULT_OTA_URL)
                 local version_input
                 local default_version = Updater.getDefaultOtaInput(assistant) or "main"
                 local current_version = tostring(meta.version)

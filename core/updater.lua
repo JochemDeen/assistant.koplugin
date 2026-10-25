@@ -16,6 +16,9 @@ local ASUtils = require("utils/base")
 local joinPath = ASUtils.joinPath
 
 local UPDATE_CHECK_INTERVAL = 48 * 3600 -- 48 hours in seconds
+-- Releases and OTA archives come from the LLM Reader fork, never plain upstream.
+local DEFAULT_UPDATE_CHECK_URL = "https://api.github.com/repos/JochemDeen/assistant.koplugin/releases/latest"
+local DEFAULT_OTA_URL = "https://codeload.github.com/JochemDeen/assistant.koplugin"
 local LAST_CHECK_KEY = "updater_last_check"
 local LATEST_VERSION_KEY = "updater_latest_version"
 
@@ -191,7 +194,7 @@ local function checkForUpdates(assistant)
   assistant._update_check_running = true
 
   local update_url = assistant.config:getFeature("update_check_url")
-    or "https://api.github.com/repos/omer-faruq/assistant.koplugin/releases/latest"
+    or DEFAULT_UPDATE_CHECK_URL
 
   local parsed_data, err = NetUtils.fetchJSON(update_url,
       { ["Accept"] = "application/vnd.github.v3+json" },
@@ -229,7 +232,7 @@ local function otaUpgrade(assistant, version)
   local PLUGIN_NAME = "assistant.koplugin"
 
   local OTA_URL = assistant.config:getFeature("ota_github_url")
-    or "https://codeload.github.com/omer-faruq/assistant.koplugin"
+    or DEFAULT_OTA_URL
   OTA_URL = OTA_URL:gsub("/+$", "")
 
   local REPO_REF = version:sub(1, 1) == "v" and "tags" or "heads"
@@ -519,6 +522,7 @@ local function getDefaultOtaInput(assistant)
 end
 
 return {
+  DEFAULT_OTA_URL = DEFAULT_OTA_URL,
   isVersionNewer = isVersionNewer,
   is_excluded = is_excluded,
   is_excluded_with = is_excluded_with,
