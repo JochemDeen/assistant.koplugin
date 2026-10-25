@@ -156,10 +156,11 @@ local CONFIGURATION = {
         max_page_size_for_analysis = 250,      -- maximum page size to be used on xray-recap-book analyzes (for page-based documents, ex: PDF)
 
         -- Chapter Companion (EPUB-like documents): prompt overrides, each { system_prompt = "...", user_prompt = "..." }.
-        -- Defaults and {placeholders}: core/prompts.lua (chapter_summary / chapter_question / chapter_overview).
+        -- Defaults and {placeholders}: core/prompts.lua (chapter_summary / chapter_question / book_question / chapter_overview).
         -- Chapter text length is capped by max_text_length_for_analysis.
         -- chapter_summary_config  = { ... }, -- per-chapter summary generation
-        -- chapter_question_config = { ... }, -- "Ask About Current Chapter"
+        -- chapter_question_config = { ... }, -- "Ask About Chapter or Book", scope Current Chapter
+        -- book_question_config    = { ... }, -- "Ask About Chapter or Book", scope Book So Far / sections / chapters
         -- chapter_overview_config = { ... }, -- "Book Structure So Far"
         -- One-tap requests in the chapter features (Critique, Quiz Me, Mind Map, ...). Same keys as
         -- chapter_prompts in core/prompts.lua override a built-in one; new keys add a button.

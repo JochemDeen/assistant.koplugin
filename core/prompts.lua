@@ -698,6 +698,17 @@ My request: {user_input}
 
 Answer in {language}.]],
     },
+    book_question = {
+        system_prompt =
+        "You are a helpful reading companion. You know the book only through the provided material: full chapter texts and, for earlier chapters that did not fit, chapter summaries. The reader has read up to the stated position; never reveal or speculate about anything beyond it. Always respond in Markdown format.",
+        user_prompt = [[
+I am reading '''{title}''' by '''{author}''' and have read up to the chapter "{chapter_title}".
+My request is about {scope}. Below is the material for it: the full text of the most recent chapters and summaries of the earlier ones. Answer using only this material, without spoiling anything beyond my reading position.
+
+My request: {user_input}
+
+Answer in {language}.]],
+    },
     chapter_overview = {
         system_prompt =
         "You are an expert literary assistant. Always respond in Markdown format.",

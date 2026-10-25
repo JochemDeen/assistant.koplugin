@@ -4,6 +4,9 @@
 --   * getChapterIndexByPage / countMissing / buildSummariesBlock
 --   * getChapterPrompts: built-in chapter prompts merged with user overrides
 --   * expandPrompt: underscore placeholders, unknown ones left untouched
+--   * buildRangeContext: full text newest first within the budget, summaries
+--     for the rest, lazy text extraction
+--   * getSections / getAvailableChapterCount: Ask About scopes
 local helper = require("test.helper")
 local assert = helper.assert
 local Chapters = require("feature/chapters")
@@ -133,6 +136,80 @@ local tests = {
         }), "chapter_question_config", "chapter_question")
         assert.equal("custom {user_input}", user)
         assert.matches(system, "reading companion")
+    end),
+
+    test("buildRangeContext: everything fits as full text", function()
+        local chapters = { { title = "A" }, { title = "B" } }
+        local context, info = Chapters.buildRangeContext(chapters, nil, 1, 2, 1000,
+            function(idx) return "text" .. idx end)
+        assert.matches(context, "%[CHAPTER 1: A%]\ntext1")
+        assert.matches(context, "%[CHAPTER 2: B%]\ntext2")
+        assert.notMatches(context, "SUMMARIES")
+        assert.equal(1, info.full_from)
+        assert.equal(0, info.missing_summaries)
+    end),
+
+    test("buildRangeContext: older chapters fall back to summaries, lazily", function()
+        local chapters = { { title = "A" }, { title = "B" }, { title = "C" }, { title = "D" } }
+        local cache = { chapters = { [1] = { summary = "sum A" }, [3] = { empty = true } } }
+        local asked = {}
+        local context, info = Chapters.buildRangeContext(chapters, cache, 1, 4, 25, function(idx)
+            table.insert(asked, idx)
+            return string.rep(tostring(idx), 10)
+        end)
+        -- 4 (10 bytes) and 3 (10 bytes) fit, 2 does not: 1 is never extracted
+        assert.equal(3, #asked)
+        assert.equal(3, info.full_from)
+        assert.matches(context, "### 1%. A\n\nsum A")
+        assert.matches(context, "### 2%. B\n\n%(no summary available%)")
+        assert.equal(1, info.missing_summaries)
+        assert.matches(context, "%[CHAPTER 4: D%]")
+        assert.notMatches(context, "%[CHAPTER 2")
+    end),
+
+    test("buildRangeContext: an oversized last chapter keeps its tail", function()
+        local chapters = { { title = "A" } }
+        local context, info = Chapters.buildRangeContext(chapters, nil, 1, 1, 5,
+            function() return "0123456789" end)
+        assert.matches(context, "%[%.%.%.%]\n56789")
+        assert.equal(1, info.full_from)
+    end),
+
+    test("getSections: parts span their chapters", function()
+        local ui = uiWithToc({
+            { depth = 1, title = "Part One", xpointer = "p1", page = 1 },
+            { depth = 2, title = "Ch 1", xpointer = "c1", page = 1 },
+            { depth = 2, title = "Ch 2", xpointer = "c2", page = 10 },
+            { depth = 1, title = "Part Two", xpointer = "p2", page = 19 },
+            { depth = 2, title = "Ch 3", xpointer = "c3", page = 20 },
+            { depth = 2, title = "Ch 4", xpointer = "c4", page = 30 },
+            { depth = 2, title = "Ch 5", xpointer = "c5", page = 40 },
+        })
+        local chapters = Chapters.getChapters(ui)
+        local sections = Chapters.getSections(ui, chapters)
+        assert.equal(2, #sections)
+        assert.equal("Part One", sections[1].title)
+        assert.equal(1, sections[1].first)
+        assert.equal(2, sections[1].last)
+        assert.equal(3, sections[2].first)
+        assert.equal(5, sections[2].last)
+        -- a flat TOC has no sections
+        assert.equal(0, #Chapters.getSections(uiWithToc({
+            { depth = 1, title = "One", xpointer = "c1", page = 1 },
+        }), { { title = "One", start_page = 1, depth = 1 } }))
+    end),
+
+    test("getAvailableChapterCount: the current chapter, or all once finished", function()
+        local chapters = { { start_page = 1 }, { start_page = 10 }, { start_page = 20 } }
+        local ui = { document = { getPageCount = function() return 30 end } }
+        ui.getCurrentPage = function() return 12 end
+        local n, finished = Chapters.getAvailableChapterCount(ui, chapters)
+        assert.equal(2, n)
+        assert.isFalse(finished)
+        ui.getCurrentPage = function() return 30 end
+        n, finished = Chapters.getAvailableChapterCount(ui, chapters)
+        assert.equal(3, n)
+        assert.isTrue(finished)
     end),
 }
 

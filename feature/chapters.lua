@@ -56,6 +56,7 @@ function M.getChapters(ui)
                 title = item.title or _("Untitled chapter"),
                 start_xp = item.xpointer,
                 start_page = item.page or 1,
+                depth = depth,
             })
         end
     end
@@ -203,6 +204,111 @@ function M.buildSummariesBlock(cache, upto)
         end
     end
     return table.concat(parts, "\n\n")
+end
+
+--- Highest chapter index the reader may ask about: the current chapter (read
+--- up to the position), or every chapter once the book is finished.
+--- @return number last index, boolean book_finished
+function M.getAvailableChapterCount(ui, chapters)
+    if ui:getCurrentPage() >= ui.document:getPageCount() then
+        return #chapters, true
+    end
+    return math.max(1, M.getChapterIndexByPage(chapters, ui:getCurrentPage())), false
+end
+
+--- Sections ("parts") from TOC entries shallower than the chapter level. A
+--- section spans from the first chapter starting at or after its heading up to
+--- the chapter before the next section.
+--- @return table[] list of { title, first, last }
+function M.getSections(ui, chapters)
+    local toc = ui.toc and ui.toc.toc
+    local chapter_depth = chapters[#chapters] and chapters[#chapters].depth
+    if type(toc) ~= "table" or not chapter_depth or chapter_depth <= 1 then return {} end
+    local sections = {}
+    for toc_idx = 1, #toc do
+        local item = toc[toc_idx]
+        if (item.depth or 1) < chapter_depth and item.page then
+            local first
+            for chapter_idx = 1, #chapters do
+                if chapters[chapter_idx].start_page >= item.page then
+                    first = chapter_idx
+                    break
+                end
+            end
+            if first then
+                local prev = sections[#sections]
+                if prev and prev.first == first then
+                    table.remove(sections) -- nested headings on the same page: keep the innermost
+                    prev = sections[#sections]
+                end
+                if prev then prev.last = math.max(prev.first, first - 1) end
+                table.insert(sections, { title = item.title or "?", first = first, last = #chapters })
+            end
+        end
+    end
+    return sections
+end
+
+--- Context for chapters first .. last within `budget` bytes: full texts from
+--- the last chapter backwards while they fit (the last one is tail-truncated if
+--- it alone is too long); earlier chapters fall back to cached summaries.
+--- getText(idx) is called lazily, newest first, and not for summarized chapters.
+--- @param chapters table[]
+--- @param cache table|nil summary cache
+--- @param first number
+--- @param last number
+--- @param budget number maximum bytes of full text
+--- @param getText function(idx) -> string|nil
+--- @return string context, table info { full_from, missing_summaries }
+function M.buildRangeContext(chapters, cache, first, last, budget, getText)
+    local texts = {}
+    local used = 0
+    local full_from = last + 1
+    for idx = last, first, -1 do
+        local text = getText(idx) or ""
+        if koutil.trim(text) == "" then
+            texts[idx] = ""
+            full_from = idx
+        elseif used + #text <= budget then
+            texts[idx] = text
+            used = used + #text
+            full_from = idx
+        else
+            if idx == last then
+                texts[idx] = "[...]\n" .. TextUtils.truncateToTailUtf8Safe(text, budget)
+                full_from = idx
+            end
+            break
+        end
+    end
+
+    local parts = {}
+    local missing = 0
+    if full_from > first then
+        local summaries = {}
+        for idx = first, full_from - 1 do
+            local entry = M.getEntry(cache, idx)
+            local title = chapters[idx] and chapters[idx].title or "?"
+            if entry and entry.summary then
+                table.insert(summaries, string.format("### %d. %s\n\n%s", idx, title, entry.summary))
+            elseif not (entry and entry.empty) then
+                missing = missing + 1
+                table.insert(summaries, string.format("### %d. %s\n\n(no summary available)", idx, title))
+            end
+        end
+        table.insert(parts, "[SUMMARIES OF EARLIER CHAPTERS]\n" .. table.concat(summaries, "\n\n")
+            .. "\n[END SUMMARIES OF EARLIER CHAPTERS]")
+    end
+    if full_from <= last then
+        local full = {}
+        for idx = full_from, last do
+            if texts[idx] ~= "" then
+                table.insert(full, string.format("[CHAPTER %d: %s]\n%s", idx, chapters[idx].title, texts[idx]))
+            end
+        end
+        table.insert(parts, "[FULL TEXT]\n" .. table.concat(full, "\n\n") .. "\n[END FULL TEXT]")
+    end
+    return table.concat(parts, "\n\n"), { full_from = full_from, missing_summaries = missing }
 end
 
 --- Prompt pair for a chapter feature: features.<config_key> in configuration.lua

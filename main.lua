@@ -93,7 +93,7 @@ function Assistant:onDispatcherRegisterActions()
   Dispatcher:registerAction("ai_ask_chapter", {
     category = "none",
     event = "AskAIChapterQuestion",
-    title = _("Ask About Current Chapter"),
+    title = _("Ask About Chapter or Book"),
     rolling = true
   })
   Dispatcher:registerAction("ai_chapter_summary", {
@@ -159,7 +159,7 @@ end
 
 function Assistant:onAskAIChapterQuestion()
   if not self.ui.document then return end
-  require("dialogs/chapters").askAboutChapter(self)
+  require("dialogs/chapters").askAbout(self)
   return true
 end
 

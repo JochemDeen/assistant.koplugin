@@ -1204,7 +1204,7 @@ local function addToMainMenu(assistant, menu_items)
               end,
               hold_callback = function ()
                 UIManager:show(InfoMessage:new{
-                  text = _("Ask about the current chapter with one-tap requests (critique, quiz, mind map, ...), pre-generate AI chapter summaries and browse them per finished chapter, or see the book structure so far. EPUB-like documents only.")
+                  text = _("Ask about the current chapter, the book so far or chosen chapters with one-tap requests (critique, quiz, mind map, ...), pre-generate AI chapter summaries and browse them per finished chapter, or see the book structure so far. EPUB-like documents only.")
                 })
               end,
             })

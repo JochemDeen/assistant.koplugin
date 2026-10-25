@@ -24,6 +24,7 @@ local M = {}
 local SCOPE_CHAPTER = "this chapter"
 local SCOPE_CURRENT_CHAPTER = "the current chapter up to my reading position"
 local SCOPE_BOOK_SO_FAR = "the book so far (the chapters I have finished)"
+local SCOPE_BOOK = "the book so far, up to my reading position"
 
 local function getBookInfo(ui)
     local meta = DocUtils.getBookMeta(ui)
@@ -562,10 +563,103 @@ function M.showStructureOverview(assistant, force)
     end)
 end
 
---- Ask about the current chapter, typed or via a chapter prompt button.
---- Context: summaries of finished chapters + the current chapter's text up to
---- the reading position.
-function M.askAboutChapter(assistant)
+--- Ask-about scope: { kind = "chapter" | "book" | "range", first, last, section (title|nil) }.
+local function scopeLabel(scope, chapters)
+    if scope.kind == "chapter" then
+        return T(_("Current Chapter: %1"), chapters[scope.last].title)
+    elseif scope.kind == "book" then
+        return _("Book So Far")
+    elseif scope.section then
+        return T("%1 (%2-%3)", scope.section, scope.first, scope.last)
+    elseif scope.first == scope.last then
+        return T(_("Chapter %1: %2"), scope.first, chapters[scope.first].title)
+    end
+    return T(_("Chapters %1-%2"), scope.first, scope.last)
+end
+
+--- LLM-facing description of a scope, for {scope}.
+local function scopeForPrompt(scope)
+    if scope.kind == "chapter" then
+        return SCOPE_CURRENT_CHAPTER
+    elseif scope.kind == "book" then
+        return SCOPE_BOOK
+    elseif scope.section then
+        return string.format("the section \"%s\" (chapters %d to %d)", scope.section, scope.first, scope.last)
+    elseif scope.first == scope.last then
+        return string.format("chapter %d", scope.first)
+    end
+    return string.format("chapters %d to %d", scope.first, scope.last)
+end
+
+--- Two-step chapter range picker (from, then to), limited to 1 .. available.
+local function pickChapterRange(chapters, available, on_pick)
+    local ButtonDialog = require("ui/widget/buttondialog")
+    local function chapterList(from, title, on_select)
+        local dialog
+        local buttons = {}
+        for chapter_idx = from, available do
+            table.insert(buttons, {{
+                text = string.format("%d. %s", chapter_idx, chapters[chapter_idx].title),
+                align = "left",
+                callback = function()
+                    UIManager:close(dialog)
+                    on_select(chapter_idx)
+                end,
+            }})
+        end
+        dialog = ButtonDialog:new{ title = title, buttons = buttons }
+        UIManager:show(dialog)
+    end
+    chapterList(1, _("From Chapter"), function(first)
+        chapterList(first, _("To Chapter"), function(last)
+            on_pick({ kind = "range", first = first, last = last })
+        end)
+    end)
+end
+
+--- Scope picker: current chapter, book so far, the book's sections, or a chapter range.
+local function pickScope(ui, chapters, current, available, on_pick)
+    local ButtonDialog = require("ui/widget/buttondialog")
+    local dialog
+    local function choose(scope)
+        UIManager:close(dialog)
+        on_pick(scope)
+    end
+    local buttons = {
+        {{ text = T(_("Current Chapter: %1"), chapters[current].title), align = "left",
+            callback = function() choose({ kind = "chapter", first = current, last = current }) end }},
+        {{ text = _("Book So Far"), align = "left",
+            callback = function() choose({ kind = "book", first = 1, last = available }) end }},
+    }
+    local sections = Chapters.getSections(ui, chapters)
+    for section_idx = 1, #sections do
+        local section = sections[section_idx]
+        if section.first <= available then
+            local last = math.min(section.last, available)
+            table.insert(buttons, {{
+                text = T("%1 (%2-%3)", section.title, section.first, last),
+                align = "left",
+                callback = function()
+                    choose({ kind = "range", first = section.first, last = last, section = section.title })
+                end,
+            }})
+        end
+    end
+    table.insert(buttons, {{ text = _("Choose Chapters..."), align = "left",
+        callback = function()
+            UIManager:close(dialog)
+            pickChapterRange(chapters, available, on_pick)
+        end }})
+    dialog = ButtonDialog:new{ title = _("Ask About"), buttons = buttons }
+    UIManager:show(dialog)
+end
+
+--- Ask about the current chapter, the book so far or a range of chapters,
+--- typed or via a chapter prompt button. Never beyond the reading position
+--- (the whole book once it is finished).
+--- @param scope table|nil defaults to the current chapter
+--- @param typed string|nil question text carried over from a scope change
+function M.askAbout(assistant, scope, typed)
     if not assistant:isConfigured() then return end
     local ui = assistant.ui
     if not Chapters.isSupported(ui) then
@@ -577,40 +671,53 @@ function M.askAboutChapter(assistant)
         UIManager:show(InfoMessage:new{ icon = "notice-warning", text = err })
         return
     end
-    local idx = math.max(1, Chapters.getChapterIndexByPage(chapters, ui:getCurrentPage()))
-    local chapter_title = chapters[idx].title
+    local available = Chapters.getAvailableChapterCount(ui, chapters)
+    local current = math.max(1, Chapters.getChapterIndexByPage(chapters, ui:getCurrentPage()))
+    scope = scope or { kind = "chapter", first = current, last = current }
 
     local input_dialog
     local function submit(request)
         UIManager:close(input_dialog)
         NetUtils.runWhenOnlineFast(function()
             Trapper:wrap(function()
-                M.queryAboutChapter(assistant, chapters, idx, request)
+                M.queryAbout(assistant, chapters, scope, request)
             end)
         end)
     end
 
-    local button_rows = {{
-        {
-            text = _("Cancel"),
-            id = "close",
+    local button_rows = {
+        {{
+            text = T(_("Scope: %1"), scopeLabel(scope, chapters)),
             callback = function()
+                local text = input_dialog:getInputText()
                 UIManager:close(input_dialog)
+                pickScope(ui, chapters, current, available, function(new_scope)
+                    M.askAbout(assistant, new_scope, text)
+                end)
             end,
-        },
+        }},
         {
-            text = _("Ask"),
-            is_enter_default = true,
-            callback = function()
-                local question = koutil.trim(input_dialog:getInputText() or "")
-                if question == "" then
-                    UIManager:show(InfoMessage:new{ text = _("Enter a question or tap one of the buttons."), timeout = 3 })
-                    return
-                end
-                submit({ question = question })
-            end,
+            {
+                text = _("Cancel"),
+                id = "close",
+                callback = function()
+                    UIManager:close(input_dialog)
+                end,
+            },
+            {
+                text = _("Ask"),
+                is_enter_default = true,
+                callback = function()
+                    local question = koutil.trim(input_dialog:getInputText() or "")
+                    if question == "" then
+                        UIManager:show(InfoMessage:new{ text = _("Enter a question or tap one of the buttons."), timeout = 3 })
+                        return
+                    end
+                    submit({ question = question })
+                end,
+            },
         },
-    }}
+    }
     local prompts = Chapters.getChapterPrompts(assistant.config:getFeature("chapter_prompts"))
     for i = 1, #prompts, 3 do
         local row = {}
@@ -627,25 +734,30 @@ function M.askAboutChapter(assistant)
     end
 
     input_dialog = InputDialog:new{
-        title = T(_("Ask about: %1"), chapter_title),
+        title = _("Ask About"),
+        input = typed or "",
         input_hint = _("Type a question, or tap a button below"),
         buttons = button_rows,
     }
     UIManager:show(input_dialog)
 end
 
---- Run a chapter request and show the conversation.
+--- Run an ask-about request and show the conversation.
+--- Chapter scope: summaries of finished chapters + the current chapter up to
+--- the position. Book/range scope: full chapter texts newest first within
+--- max_text_length_for_analysis, summaries for the earlier ones.
 --- @param request table { question = string, prompt = table|nil chapter prompt }
-function M.queryAboutChapter(assistant, chapters, idx, request)
+function M.queryAbout(assistant, chapters, scope, request)
     local ui = assistant.ui
     if not loadActiveModel(assistant) then return end
 
     local title, author = getBookInfo(ui)
     local language = getLanguage(assistant)
-    local chapter_title = chapters[idx].title
-    local vars = { scope = SCOPE_CURRENT_CHAPTER, title = title, author = author,
-        language = language, chapter_title = chapter_title }
-    local system_prompt, user_prompt_template = Chapters.getPrompts(assistant.config, "chapter_question_config", "chapter_question")
+    local current = math.max(1, Chapters.getChapterIndexByPage(chapters, ui:getCurrentPage()))
+    local position_xp = ui.document:getXPointer()
+    local _available, finished = Chapters.getAvailableChapterCount(ui, chapters)
+    local vars = { scope = scopeForPrompt(scope), title = title, author = author,
+        language = language, chapter_title = chapters[current].title }
 
     local request_text = request.question or ""
     if request.prompt then
@@ -653,28 +765,63 @@ function M.queryAboutChapter(assistant, chapters, idx, request)
             .. (request.question ~= "" and ("\n\n" .. request.question) or "")
     end
 
-    local user_content = Chapters.expandPrompt(user_prompt_template, {
-        title = title,
-        author = author,
-        chapter_title = chapter_title,
-        user_input = request_text,
-        language = language,
-    })
-    local previous_summaries = Chapters.buildSummariesBlock(Chapters.loadCache(ui), idx - 1)
-    if previous_summaries ~= "" then
-        user_content = user_content .. "\n\n[SUMMARIES OF FINISHED CHAPTERS]\n"
-            .. previous_summaries .. "\n[END SUMMARIES OF FINISHED CHAPTERS]"
-    end
-    -- the current chapter up to the top of the current page
-    local chapter_text = Chapters.getChapterText(ui, chapters, idx, ui.document:getXPointer())
-    if chapter_text and koutil.trim(chapter_text) ~= "" then
-        user_content = user_content .. "\n\n[CURRENT CHAPTER TEXT, UP TO MY POSITION]\n"
-            .. Chapters.truncateChapterText(chapter_text, getMaxTextLength(assistant)) .. "\n[END CURRENT CHAPTER TEXT]"
+    local cache = Chapters.loadCache(ui)
+    local max_len = getMaxTextLength(assistant)
+    local system_prompt, user_content
+    if scope.kind == "chapter" then
+        local user_prompt_template
+        system_prompt, user_prompt_template = Chapters.getPrompts(assistant.config, "chapter_question_config", "chapter_question")
+        user_content = Chapters.expandPrompt(user_prompt_template, {
+            title = title,
+            author = author,
+            chapter_title = chapters[current].title,
+            user_input = request_text,
+            language = language,
+        })
+        local previous_summaries = Chapters.buildSummariesBlock(cache, current - 1)
+        if previous_summaries ~= "" then
+            user_content = user_content .. "\n\n[SUMMARIES OF FINISHED CHAPTERS]\n"
+                .. previous_summaries .. "\n[END SUMMARIES OF FINISHED CHAPTERS]"
+        end
+        -- the current chapter up to the top of the current page
+        local chapter_text = Chapters.getChapterText(ui, chapters, current, position_xp)
+        if chapter_text and koutil.trim(chapter_text) ~= "" then
+            user_content = user_content .. "\n\n[CURRENT CHAPTER TEXT, UP TO MY POSITION]\n"
+                .. Chapters.truncateChapterText(chapter_text, max_len) .. "\n[END CURRENT CHAPTER TEXT]"
+        end
+    else
+        local user_prompt_template
+        system_prompt, user_prompt_template = Chapters.getPrompts(assistant.config, "book_question_config", "book_question")
+        user_content = Chapters.expandPrompt(user_prompt_template, {
+            title = title,
+            author = author,
+            chapter_title = chapters[current].title,
+            scope = vars.scope,
+            user_input = request_text,
+            language = language,
+        })
+        local context, info = Chapters.buildRangeContext(chapters, cache, scope.first, scope.last, max_len,
+            function(idx)
+                -- the chapter being read only counts up to the position
+                if idx == current and not finished then
+                    return Chapters.getChapterText(ui, chapters, idx, position_xp)
+                end
+                return Chapters.getChapterText(ui, chapters, idx)
+            end)
+        user_content = user_content .. "\n\n" .. context
+        if info.missing_summaries > 0 then
+            UIManager:show(InfoMessage:new{
+                text = T(_("%1 earlier chapters did not fit as full text and have no summary yet; the answer will not cover them. Generate chapter summaries to include them."),
+                    info.missing_summaries),
+                timeout = 5,
+            })
+        end
     end
 
+    local label = scopeLabel(scope, chapters)
     local suggestions = suggestionsEnabled(assistant)
     local request_msg = { role = "user", content = user_content }
-    ASUtils.set_attr(request_msg, "prompt_title", request.prompt and request.prompt.text or chapter_title)
+    ASUtils.set_attr(request_msg, "prompt_title", request.prompt and request.prompt.text or label)
     ASUtils.set_attr(request_msg, "user_input", request.question or "")
     ASUtils.set_attr(request_msg, "show_suggestions", suggestions)
     ASUtils.set_attr(request_msg, "use_websearch", false)
@@ -682,7 +829,7 @@ function M.queryAboutChapter(assistant, chapters, idx, request)
         { role = "system", content = conversationSystemPrompt(assistant, system_prompt, suggestions) },
         request_msg,
     }
-    local query_title = request.prompt and request.prompt.text or chapter_title
+    local query_title = request.prompt and request.prompt.text or label
     local answer, qerr = assistant.querier:query(message_history, query_title, { use_websearch = "none" })
     if qerr then
         assistant.querier:showError(qerr, message_history)
@@ -690,7 +837,7 @@ function M.queryAboutChapter(assistant, chapters, idx, request)
     end
     Conversation.append_answer(message_history, answer, suggestions)
     showConversation(assistant, {
-        title = T(_("Chapter: %1"), chapter_title),
+        title = label,
         message_history = message_history,
         vars = vars,
     })
@@ -732,14 +879,14 @@ function M.genMenuItems(assistant)
     local function supported() return Chapters.isSupported(ui) end
     return {
         {
-            text = _("Ask About Current Chapter"),
+            text = _("Ask About Chapter or Book"),
             enabled_func = supported,
             callback = function()
-                M.askAboutChapter(assistant)
+                M.askAbout(assistant)
             end,
             hold_callback = function()
                 UIManager:show(InfoMessage:new{
-                    text = _("Ask a question, or tap a ready-made request (critique, quiz, mind map, ...), with the current chapter up to your reading position and the summaries of finished chapters as context. No spoilers from further ahead."),
+                    text = _("Ask a question, or tap a ready-made request (critique, quiz, mind map, ...), about the current chapter, the book so far, a part of the book or chosen chapters. Uses the full text where it fits and chapter summaries for the rest. Never goes beyond your reading position."),
                 })
             end,
         },
